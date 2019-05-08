@@ -155,9 +155,6 @@ extern crate uuid;
 #[macro_use]
 extern crate matches;
 
-#[cfg(windows)]
-extern crate winapi;
-
 #[cfg(test)]
 extern crate rand;
 
