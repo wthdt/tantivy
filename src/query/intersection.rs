@@ -214,18 +214,45 @@ impl<TDocSet: DocSet, TOtherDocSet: DocSet> DocSet for Intersection<TDocSet, TOt
     }
 }
 
-impl<TScorer, TOtherScorer> Scorer for Intersection<TScorer, TOtherScorer>
+impl<TScorer, TOtherScorer> Intersection<TScorer, TOtherScorer>
 where
     TScorer: Scorer,
     TOtherScorer: Scorer,
 {
-    fn score(&mut self) -> Score {
-        self.left.score()
-            + self.right.score()
-            + self.others.iter_mut().map(Scorer::score).sum::<Score>()
+    fn for_each_two(&mut self, callback: &mut FnMut(DocId, Score)) {
+        let (left, right) = (&mut self.left, &mut self.right);
+        while left.advance() {
+            let mut candidate = left.doc();
+            loop {
+                match right.skip_next(candidate) {
+                    SkipResult::Reached => {
+                        break;
+                    }
+                    SkipResult::OverStep => {
+                        candidate = right.doc();
+                    }
+                    SkipResult::End => {
+                        return;
+                    }
+                }
+                match left.skip_next(candidate) {
+                    SkipResult::Reached => {
+                        let score = left.score() + right.score();
+                        callback(candidate, score);
+                        break;
+                    }
+                    SkipResult::OverStep => {
+                        candidate = left.doc();
+                    }
+                    SkipResult::End => {
+                        return;
+                    }
+                }
+            }
+        }
     }
 
-    fn for_each(&mut self, callback: &mut FnMut(DocId, Score)) {b
+    fn for_each_any_number(&mut self, callback: &mut FnMut(DocId, Score)) {
         let (left, right) = (&mut self.left, &mut self.right);
 
         if !left.advance() {
@@ -265,7 +292,6 @@ where
                 }
             }
 
-
             // test the remaining scorers;
             for (ord, docset) in self.others.iter_mut().enumerate() {
                 if ord == other_candidate_ord {
@@ -300,9 +326,38 @@ where
                         return;
                     }
                 }
-                callback(candidate, self.score())
+                break;
             }
+            let score: Score = left.score()
+                + right.score()
+                + self
+                    .others
+                    .iter_mut()
+                    .map(|other| other.score())
+                    .sum::<Score>();
+            callback(candidate, score)
+        }
+    }
+}
 
+impl<TScorer, TOtherScorer> Scorer for Intersection<TScorer, TOtherScorer>
+where
+    TScorer: Scorer,
+    TOtherScorer: Scorer,
+{
+    fn score(&mut self) -> Score {
+        self.left.score()
+            + self.right.score()
+            + self.others.iter_mut().map(Scorer::score).sum::<Score>()
+    }
+
+    fn for_each(&mut self, callback: &mut FnMut(DocId, Score)) {
+        if self.others.len() == 2 {
+            self.for_each_two(callback);
+        } else {
+            while self.advance() {
+                callback(self.doc(), self.score());
+            }
         }
     }
 }
